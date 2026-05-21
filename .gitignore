@@ -10,3 +10,6 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .streamlit/config.toml
+
+# Backup DB
+backups/
