@@ -1,0 +1,33 @@
+--- MARQUES DE L'ATELIER (COURANTES) ---
+Bambu Lab
+eSUN
+Polymaker
+Prusament (Prusa)
+Extrudr
+Formfutura
+Sunlu
+Overture
+Creality
+MatterHackers
+Overture
+--- TEXTURÉS & ESTHÉTIQUES ---
+Proto-pasta
+ColorFabb
+Spectrum Filaments
+AzureFilm
+Fiberlogy
+Fillamentum
+--- TECHNIQUE & INGENIERIE ---
+3DXTECH
+Kimya
+BASF Forward AM
+Ultimaker
+Kexcelled
+Voxel
+Tinmorry
+--- ULTRA-POLYMÈRES & MÉDICAL ---
+Ensinger
+Evonik
+Formlabs
+Zetamix (Nanoe)
+Générique / Autre

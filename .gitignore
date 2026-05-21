@@ -1,0 +1,12 @@
+# Base de données locale (Contient vos devis et stocks réels)
+*.db
+*.db-journal
+
+# Secrets et mots de passe d'atelier
+.streamlit/secrets.toml
+
+# Fichiers temporaires Python et caches
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.streamlit/config.toml
