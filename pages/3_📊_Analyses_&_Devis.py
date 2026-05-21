@@ -60,12 +60,13 @@ revient_unitaire = cout_revient_total / c["quantite_pieces"]
 vente_unitaire_arrondi = round((prix_vente_total_arrondi / c["quantite_pieces"]) * 20) / 20
 benefice_unitaire = benefice_net_total / c["quantite_pieces"]
 
-# ==================== EN-TÊTE D'IMPRESSION ====================
+# ==================== EN-TÊTE D'IMPRESSION (AVEC NOM DU CLIENT) ====================
 st.html(f"""
 <div class="print-only" style="border-bottom: 2px solid #1E1E24; padding-bottom: 15px; margin-bottom: 25px;">
     <h2 style="margin:0; color:#1E1E24;">PROPOSITION COMMERCIALE / DEVIS</h2>
     <p style="margin:5px 0 0 0; font-size:14px; color:#555;">Date d'édition : {datetime.now().strftime("%d.%m.%Y")} | Document généré via Cost3D Pro</p>
     <p style="margin:15px 0 0 0; font-size:16px;"><b>Référence Projet :</b> {c['nom_projet']}</p>
+    <p style="margin:2px 0 0 0; font-size:16px;"><b>Client :</b> {c.get('client_nom', 'Client Passager')}</p>
     <p style="margin:2px 0 0 0; font-size:16px;"><b>Série :</b> {c['quantite_pieces']} exemplaire(s) | <b>Matériau :</b> {c['fil_p']}</p>
     <p style="margin:2px 0 0 0; font-size:14px;"><b>Mode de livraison :</b> {c['mode_envoi']}</p>
 </div>
@@ -73,6 +74,7 @@ st.html(f"""
 
 st.title("📊 Rapport Analytique & Devis")
 st.markdown(f"#### Référence du calcul : **{c['nom_projet']}**")
+st.info(f"👥 **Client associé** : {c.get('client_nom', 'Client Passager')}")
 
 if c["quantite_pieces"] > 1:
     st.markdown(f"##### 📦 Analyse de la série complète ({c['quantite_pieces']} pièces)")
@@ -97,11 +99,12 @@ with act1:
         date_str = datetime.now().strftime("%d/%m/%Y %H:%M")
         txt_filament = f"{c['fil_p']} / {c['fil_s']}" if c["activer_support"] else c["fil_p"]
         
-        c_db.execute("""INSERT INTO projets (date, nom, filament, cout_revient, prix_vente, poids_total) 
-                        VALUES (?, ?, ?, ?, ?, ?)""", 
-                     (date_str, c['nom_projet'], txt_filament, cout_revient_total, prix_vente_total_arrondi, total_poids_matiere_plateau))
+        # Sauvegarde du projet dans l'historique (incluant la colonne client_nom)
+        c_db.execute("""INSERT INTO projets (date, nom, filament, cout_revient, prix_vente, poids_total, client_nom) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?)""", 
+                     (date_str, c['nom_projet'], txt_filament, cout_revient_total, prix_vente_total_arrondi, total_poids_matiere_plateau, c.get('client_nom', 'Client Passager')))
         
-        # 🟢 ICI LE DÉTAIL 2 INTÉGRÉ : Déduction intelligente de la bobine entamée disponible
+        # Déduction intelligente de la bobine entamée disponible
         poids_deduction_p = poids_total_p + 10
         c_db.execute("""UPDATE stocks SET poids_restant = MAX(0, poids_restant - ?) 
                         WHERE id = (SELECT id FROM stocks WHERE type_filament = ? AND poids_restant > 0 ORDER BY id ASC LIMIT 1)""", 
@@ -176,7 +179,7 @@ st.html(f"""
             <td style="text-align: right;">{prix_avec_marge_total - cout_revient_total:.2f} CHF</td>
         </tr>
         <tr style="height: 30px; color: #008631; border-bottom: 2px dashed #ccc;">
-            <td>• Frais d'expédition ({c['mode_envoi'].split(' - ')[0]})</td>
+            <td>• Frais d'expédition ({c['mode_envoi'].split(' - ')})</td>
             <td style="text-align: right;">{c['frais_port_net']:.2f} CHF</td>
         </tr>
         <tr style="height: 30px; color: #555;">

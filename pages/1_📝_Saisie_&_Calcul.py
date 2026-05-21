@@ -1,5 +1,7 @@
 import streamlit as st
 import json
+import sqlite3
+import pandas as pd
 
 # Configuration de la page
 st.set_page_config(page_title="Cost3D - Saisie & Calcul", layout="centered", page_icon="📝")
@@ -25,20 +27,33 @@ except Exception:
     }
 
 st.title("📝 Paramétrage du Projet & Calcul des Coûts")
-st.caption("Saisissez les paramètres de fabrication. Les données de temps et de poids sont pré-remplies si une machine est connectée.")
+st.caption("Saisissez les paramètres de fabrication. Les données de temps, poids, puissance et amortissement s'adaptent si une machine est liée.")
 
 if st.session_state["machine_connectee"] != "Aucune":
     st.success(f"🔗 Données synchronisées depuis l'appareil : **{st.session_state['machine_connectee']}**")
 
-# --- FORMULAIRE DE SAISIE ---
+# --- 1. IDENTIFICATION & CLIENT ---
 with st.container(border=True):
-    st.subheader("1. Identification & Quantité")
+    st.subheader("1. Identification & Client")
+    
+    # Récupération dynamique des clients existants depuis la base de données SQLite
+    conn = sqlite3.connect("projets_3d.db", check_same_thread=False)
+    try:
+        df_c_list = pd.read_sql_query("SELECT nom_entreprise FROM clients ORDER BY nom_entreprise ASC", conn)
+        liste_clients_choix = ["Client Passager"] + df_c_list["nom_entreprise"].tolist()
+    except Exception:
+        liste_clients_choix = ["Client Passager"]
+    conn.close()
+    
+    client_selectionne = st.selectbox("Attribuer ce projet à un client :", liste_clients_choix)
+    
     col_id1, col_id2 = st.columns(2)
     with col_id1: 
         nom_projet = st.text_input("Nom du projet / Référence Devis", value="Boîtier Technique ASA")
     with col_id2: 
         quantite_pieces = st.number_input("Quantité de pièces à produire", min_value=1, value=1, step=1)
 
+# --- 2. MATIÈRES PREMIÈRES & PERTES ---
 with st.container(border=True):
     st.subheader("2. Matières Premières & Pertes")
     liste_filaments = list(data_filaments.keys())
@@ -65,6 +80,7 @@ with st.container(border=True):
         loss_s = st.slider("Taux de perte Support (%)", min_value=0, max_value=100, value=int(data_filaments[fil_s]["perte"])+10)
         prix_s = data_filaments[fil_s]["prix"]
 
+# --- 3. TEMPS & ÉNERGIE DYNAMIQUE ---
 with st.container(border=True):
     st.subheader("3. Temps & Énergie Dynamique")
     heures_impression = st.number_input("Temps d'impression machine (Heures)", min_value=0.0, value=float(st.session_state["temps_auto"]), step=0.1)
@@ -77,7 +93,13 @@ with st.container(border=True):
     
     prix_kwh_creux = prix_kwh_plein * 0.75
     prix_kwh_moyen = (prix_kwh_plein * (ratio_heures_pleines / 100)) + (prix_kwh_creux * ((100 - ratio_heures_pleines) / 100))
-    puissance_machine = st.number_input("Consommation moyenne machine (W)", min_value=0, value=350)
+    
+    # 📡 Récupération de la puissance injectée par le hub de flotte
+    p_defaut = 350
+    if "machine_active_data" in st.session_state and st.session_state["machine_active_data"]:
+        p_defaut = st.session_state["machine_active_data"]["puissance"]
+        
+    puissance_machine = st.number_input("Consommation moyenne machine (W)", min_value=0, value=int(p_defaut))
     
     appliquer_recuit = st.toggle("Activer le recuit thermique (Annealing)", value=False)
     cout_recuit_elec = 0.0
@@ -87,28 +109,48 @@ with st.container(border=True):
         with col_rec2: heures_recuit = st.number_input("Durée recuit (h)", min_value=0.0, value=4.0)
         cout_recuit_elec = (puissance_four / 1000) * heures_recuit * prix_kwh_plein
 
+# --- 4. AMORTISSEMENT, MAINTENANCE & CONSOMMABLES ---
 with st.container(border=True):
-    st.subheader("4. Amortissement & Maintenance Prédictive")
+    st.subheader("4. Amortissement, Maintenance & Consommables")
     est_abrasif = any(x in fil_p for x in ["-CF", "-GF", "PPS", "PAHT", "316L", "Titane", "Glow", "WOOD", "COPPER", "BRONZE", "SILK"]) or (activer_support and any(x in fil_s for x in ["-CF", "-GF"]))
     est_haute_temp = any(x in fil_p for x in ["PEEK", "PEKK", "PEI", "Ultem", "PVDF"])
     frais_maintenance_base = 0.75 if est_haute_temp else (0.45 if est_abrasif else 0.15)
     
     col_maint1, col_maint2 = st.columns(2)
     with col_maint1: 
-        amortissement_horaire = st.number_input("Amortissement machine (CHF/h)", min_value=0.0, value=0.25)
+        # 📡 Récupération de l'amortissement injecté par le hub de flotte
+        a_defaut = 0.25
+        if "machine_active_data" in st.session_state and st.session_state["machine_active_data"]:
+            a_defaut = st.session_state["machine_active_data"]["amortissement"]
+            
+        amortissement_horaire = st.number_input("Amortissement machine (CHF/h)", min_value=0.0, value=float(a_defaut), format="%.2f")
     with col_maint2: 
         maintenance_horaire = st.number_input("Frais d'usure prédictifs (CHF/h)", min_value=0.0, value=frais_maintenance_base)
+        
+    st.markdown("---")
+    st.markdown("**Consommables d'atelier (Plaques PEI, Buses, Filtres HEPA/Charbon)**")
+    col_cons1, col_cons2 = st.columns(2)
+    with col_cons1:
+        type_consommable = st.selectbox("Type d'équipement d'atelier usé :", ["Buse Standard Laiton", "Buse Acier Durci / ObXidian", "Kit filtration COV actif", "Revêtement Plaque PEI texturée"])
+    with col_cons2:
+        cout_cons_horaire = st.number_input("Forfait consommable (CHF/h)", min_value=0.0, value=0.10, format="%.2f")
 
+# --- 5. LOGISTIQUE, MAIN D'ŒUVRE & RISQUES ---
 with st.container(border=True):
-    st.subheader("5. Logistique, Post-Traitement & Fournitures")
+    st.subheader("5. Logistique, Post-Traitement & Risques")
     col9, col10 = st.columns(2)
     with col9: h_preparation = st.number_input("Préparation, CAO & Slicing (Heures)", min_value=0.0, value=0.5, step=0.1)
     with col10: h_post_prod = st.number_input("Ébavurage & Post-traitement manuel (Heures)", min_value=0.0, value=0.5, step=0.1)
     
     taux_horaire = st.number_input("Tarif horaire de main-d'œuvre (CHF/h)", min_value=0.0, value=90.0)
     cout_quincaillerie = st.number_input("Fournitures complémentaires par pièce (Vis, inserts...)", min_value=0.0, value=5.0)
+    
+    st.markdown("---")
+    st.markdown("**Sécurisation des risques d'impression**")
+    risque_echec = st.slider("Taux d'échec statistique prédictif (%)", min_value=0, max_value=50, value=5, 
+                             help="Anticipation des risques de décollement, warping ou coupures de courant sur les géométries complexes.")
 
-# --- SECTION 6 OPTIMISÉE AVEC CALCUL DE POIDS AUTOMATIQUE ---
+# --- 6. PARAMÈTRES DE VENTE & EXPÉDITION ---
 with st.container(border=True):
     st.subheader("6. Paramètres de Vente & Expédition (Poste CH)")
     col_v1, col_v2 = st.columns(2)
@@ -120,12 +162,11 @@ with st.container(border=True):
     st.markdown("---")
     st.markdown("**Options de livraison**")
     
-    # Calcul automatique du poids d'expédition estimé (Pièces + Pertes + 250g emballage)
+    # Calcul automatique du poids du colis (Pièces + Pertes + 250g emballage carton)
     poids_brut_p = (poids_p * (1 + perte_p / 100)) * quantite_pieces
     poids_brut_s = (poids_s * (1 + loss_s / 100)) * quantite_pieces if activer_support else 0.0
-    poids_colis_estime_g = poids_brut_p + poids_brut_s + 250.0 # +250g de carton et calage
+    poids_colis_estime_g = poids_brut_p + poids_brut_s + 250.0
     
-    # Détermination automatique de la tranche recommandée
     if poids_colis_estime_g <= 250.0 and poids_p <= 50.0:
         index_recommande = 1 # Courrier A Petit
     elif poids_colis_estime_g <= 2250.0:
@@ -159,7 +200,7 @@ tarifs_poste = {
 }
 frais_port_net = tarifs_poste[mode_envoi]
 
-# --- STOCKAGE TEMPORAIRE POUR PASSER LES CALCULS À LA PAGE ANALYSE ---
+# --- STOCKAGE TEMPORAIRE POUR TRANSMISSION ---
 st.session_state["calcul_actif"] = {
     "nom_projet": nom_projet, "quantite_pieces": quantite_pieces, "fil_p": fil_p, "poids_p": poids_p,
     "perte_p": perte_p, "prix_p": prix_p, "activer_support": activer_support, "fil_s": fil_s, "poids_s": poids_s,
@@ -167,8 +208,11 @@ st.session_state["calcul_actif"] = {
     "puissance_machine": puissance_machine, "cout_recuit_elec": cout_recuit_elec, "amortissement_horaire": amortissement_horaire,
     "maintenance_horaire": maintenance_horaire, "h_preparation": h_preparation, "h_post_prod": h_post_prod,
     "taux_horaire": taux_horaire, "cout_quincaillerie": cout_quincaillerie, "marge_pourcent": marge_pourcent, 
-    "taxe_pourcent": taxe_pourcent, "frais_port_net": frais_port_net, "mode_envoi": mode_envoi
+    "taxe_pourcent": taxe_pourcent, "frais_port_net": frais_port_net, "mode_envoi": mode_envoi,
+    "client_nom": client_selectionne,
+    "risque_echec": risque_echec,
+    "cout_cons_horaire": cout_cons_horaire
 }
 
 st.markdown("---")
-st.info("👉 **Données prêtes et frais de port calculés.** Rendez-vous dans le menu **'3_Analyses_&_Devis'** pour consulter votre devis.")
+st.info("👉 **Données mémorisées.** Accédez au menu **'3_Analyses_&_Devis'** pour consulter votre devis révisé.")
